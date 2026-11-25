@@ -214,12 +214,91 @@ def uninstall_files():
             set_autostart(False)
         except Exception as e:
             errors.append(f"Tự khởi động: {e}")
-    for f in shortcut_files() + [cc.CONFIG, cc.LOG_FILE, cc.APP_DIR / "icon.ico"]:
+    for f in shortcut_files() + [cc.CONFIG, cc.LOG_FILE, cc.PID_FILE, cc.APP_DIR / "icon.ico"]:
         try:
             f.unlink(missing_ok=True)
         except OSError as e:
             errors.append(f"{f}: {e}")
     return errors
+
+
+# Những gì ClipBridge mang theo hoặc tự tạo ra trong thư mục của nó.
+OWN_FILES = {"clipbridge_app.pyw", "clipbridge_cloud.py", "clipbridge.py", "ClipBridge.bat", "build_exe.bat",
+             "icon.png", "icon.ico", "README.md", ".gitignore", "clipbridge_config.json", "clipbridge.log",
+             "clipbridge.pid", "token.txt", "ClipBridge.exe", "ClipBridge.spec", "upx.exe", "cloudflared.exe",
+             "__pycache__", "build", "dist", ".git"}
+
+
+def folder_plan(folder):
+    """(xoá cả thư mục?, các mục của ClipBridge, các mục lạ). Chỉ xoá cả thư mục khi trong đó
+    không có gì ngoài file của ClipBridge - phòng khi người dùng giải nén thẳng vào Downloads/Desktop."""
+    own, other = [], []
+    for p in folder.iterdir():
+        (own if p.name in OWN_FILES else other).append(p.name)
+    home = Path.home().resolve()
+    risky = folder.resolve() in {home, Path(folder.anchor).resolve()} or len(folder.resolve().parts) <= 2
+    return (not other and not risky), own, other
+
+
+_DELETER = r"""
+import os, shutil, sys, time
+pid, d, full, names = int(sys.argv[1]), sys.argv[2], sys.argv[3] == "1", sys.argv[4:]
+end = time.time() + 30
+if os.name == "nt":
+    import ctypes
+    k = ctypes.windll.kernel32
+    k.OpenProcess.restype = ctypes.c_void_p
+    h = k.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE
+    if h:
+        k.WaitForSingleObject(ctypes.c_void_p(h), 30000)
+        k.CloseHandle(ctypes.c_void_p(h))
+else:
+    while time.time() < end:
+        try:
+            os.kill(pid, 0)
+        except OSError:
+            break
+        time.sleep(0.2)
+for _ in range(40):  # thử lại: file có thể còn bị giữ một chút sau khi app thoát
+    try:
+        if full:
+            shutil.rmtree(d)
+        else:
+            for n in names:
+                p = os.path.join(d, n)
+                if os.path.isdir(p):
+                    shutil.rmtree(p)
+                elif os.path.exists(p):
+                    os.remove(p)
+        break
+    except OSError:
+        time.sleep(0.5)
+"""
+
+
+def schedule_folder_delete(folder, full, names):
+    """Một tiến trình phụ (không cửa sổ) chờ app thoát rồi xoá thư mục / các file của ClipBridge.
+    App đang chạy không tự xoá được thư mục của chính nó (Windows giữ thư mục và file .exe)."""
+    import tempfile
+
+    args = [str(os.getpid()), str(folder), "1" if full else "0", *names]
+    if FROZEN:
+        # bản .exe: không có python -> nhờ cmd (đợi ~3 giây cho app thoát)
+        if full:
+            cmd = f'ping -n 4 127.0.0.1 >nul & rmdir /s /q "{folder}"'
+        else:
+            parts = [f'(if exist "{folder / n}\\*" (rmdir /s /q "{folder / n}") else (del /f /q "{folder / n}"))'
+                     for n in names]
+            cmd = "ping -n 4 127.0.0.1 >nul & " + " & ".join(parts)
+        argv = ["cmd", "/c", cmd]
+    else:
+        exe = Path(sys.executable)
+        pyw = exe.with_name("pythonw.exe")
+        argv = [str(pyw if pyw.exists() else exe), "-c", _DELETER, *args]
+    flags = (0x00000008 | NO_WINDOW) if WIN else 0  # DETACHED_PROCESS | CREATE_NO_WINDOW
+    subprocess.Popen(argv, cwd=tempfile.gettempdir(), creationflags=flags, close_fds=True,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                     start_new_session=not WIN)
 
 
 # ================================================================ ảnh thu nhỏ
@@ -1016,16 +1095,29 @@ class App:
             os.startfile(str(cc.APP_DIR))
 
     def uninstall(self):
+        folder = cc.APP_DIR
+        full, own, other = folder_plan(folder)
+        what = (f"• xoá thư mục ClipBridge:\n   {folder}" if full else
+                f"• xoá các file của ClipBridge trong:\n   {folder}\n"
+                f"   (thư mục này còn {len(other)} file/thư mục khác nên được giữ lại)")
         if not messagebox.askyesno(
                 "Gỡ cài đặt ClipBridge",
                 "ClipBridge sẽ:\n• tắt tự khởi động\n• xoá lối tắt trên Desktop và Start Menu\n"
-                "• xoá mã ghép đôi và nhật ký trên máy này\nrồi thoát.\n\nTiếp tục?"):
+                f"• xoá mã ghép đôi và nhật ký\n{what}\nrồi thoát.\n\nKhông hoàn tác được. Tiếp tục?",
+                icon="warning"):
             return
         errors = uninstall_files()
-        msg = ("Đã gỡ xong. Giờ bạn chỉ cần xoá thư mục:\n" + str(cc.APP_DIR) +
-               ("\n\nMột số mục không xoá được:\n" + "\n".join(errors) if errors else ""))
-        messagebox.showinfo("ClipBridge", msg)
-        self.open_folder()
+        try:
+            schedule_folder_delete(folder, full, own)
+        except Exception as e:
+            errors.append(f"Xoá thư mục: {e}")
+        if errors:
+            messagebox.showwarning("ClipBridge", "Đã gỡ, nhưng một số mục không xoá được:\n" + "\n".join(errors) +
+                                   f"\n\nBạn có thể tự xoá thư mục:\n{folder}")
+        else:
+            messagebox.showinfo("ClipBridge", "Đã gỡ ClipBridge. Thư mục sẽ được xoá ngay sau khi app đóng."
+                                if full else "Đã gỡ ClipBridge. Các file của ClipBridge sẽ được xoá ngay sau "
+                                "khi app đóng; những file khác trong thư mục được giữ nguyên.")
         self.quit()
 
     # ---------- cửa sổ ----------
