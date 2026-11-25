@@ -11,27 +11,34 @@ Phía iPhone: https://clipbridge-weld.vercel.app
 3. Chuột phải file ZIP → **Properties** → tick **Unblock** → **OK**. Bước này bỏ dấu "tải từ Internet", để Windows không chặn hay hỏi lại khi chạy.
 4. Giải nén ra một thư mục cố định, ví dụ `C:\Users\<tên bạn>\ClipBridge`. **Đừng chuyển thư mục** sau khi cài.
 5. Nhấp đúp **`ClipBridge.bat`** để mở app. Nếu không mở được, nhấp đúp `clipbridge_app.pyw`.
+   Lần đầu app tự cài thư viện giao diện `customtkinter` và `qrcode` (cần mạng, mất vài giây).
 6. Lần đầu app hiện **mã QR**. Mở Camera iPhone và quét mã đó để ghép đôi.
-7. Trong app:
+7. Bấm nút **Cài đặt** (bánh răng, góc dưới phải):
    - Tick **Tự chạy ngầm khi đăng nhập Windows**.
-   - Bấm **Tạo lối tắt** để có biểu tượng ClipBridge trên Desktop và Start Menu.
+   - Chọn **Tạo lối tắt** để có biểu tượng ClipBridge trên Desktop và Start Menu.
 
 ## Sử dụng
 | Mục | Công dụng |
 |---|---|
-| **Lịch sử** (▼/▶) | Các mục đã copy trên PC và iPhone trong 4 giờ qua. Bấm **Copy** để copy lại. |
-| **Tạm dừng tự gửi sang iPhone** | Tạm ngưng gửi, ví dụ khi copy thông tin nhạy cảm |
-| **Ghép đôi iPhone (QR)** | Hiện lại mã QR, hoặc **Tạo mã mới** nếu lỡ lộ mã |
-| **Hoạt động** | Nhật ký gửi/nhận (cũng ghi vào `clipbridge.log`) |
+| Công tắc **Tự gửi** | Bật: copy trên PC tự gửi sang iPhone. Tắt khi copy thông tin nhạy cảm. |
+| **Tìm trong lịch sử** (Ctrl+F) và lọc **Tất cả / PC / iPhone** | Tìm nhanh các mục đã copy trong 4 giờ qua |
+| Dòng trong lịch sử | Trỏ chuột vào để hiện nút **Copy**, hoặc nhấp đúp dòng để copy lại |
+| **Ghép đôi** | Mã QR để quét bằng iPhone. Mã ghép đôi được ẩn, chỉ hiện 5 ký tự cuối; bấm **Copy mã** để dán vào iPhone (clipboard tự xoá mã sau 60 giây). **Tạo mã mới…** nếu lỡ lộ mã. |
+| Dòng trạng thái ở cuối | Việc gửi/nhận gần nhất. Bấm vào để xem nhật ký. |
+| **Cài đặt** (bánh răng) | Tự khởi động, tạo lối tắt, xem nhật ký, mở thư mục, **Gỡ cài đặt…**, **Thoát hẳn** |
 
+- Giao diện theo chế độ sáng/tối của Windows.
 - Bấm **X** để đóng cửa sổ thì ClipBridge **vẫn chạy ngầm**. Mở lại lối tắt để hiện cửa sổ.
-- Muốn tắt hẳn: bấm **Thoát hẳn**.
 - App tự bỏ qua nội dung từ trình quản lý mật khẩu (1Password, Bitwarden, KeePass…).
+
+## Gỡ cài đặt
+**Cài đặt → Gỡ cài đặt…**: app tắt tự khởi động, xoá lối tắt, xoá mã ghép đôi và nhật ký, rồi mở thư mục ClipBridge để bạn xoá nốt.
 
 ## Smart App Control (Windows 11)
 Chạy bằng Python như trên thì **không bị chặn**:
 - `pythonw.exe` và các DLL của Python đều do Python Software Foundation ký số.
 - File `.pyw` là script, Smart App Control không kiểm tra.
+- `customtkinter` và `qrcode` viết thuần Python, không có DLL.
 - App không dùng PowerShell hay VBScript.
 
 Riêng `ClipBridge.exe` tự build bằng `build_exe.bat` thì **sẽ bị chặn** vì chưa ký số. Đừng dùng file .exe này nếu máy bật Smart App Control.
@@ -41,7 +48,7 @@ Tải ZIP mới, rồi giải nén **đè** vào cùng thư mục. File `clipbri
 
 ## Bản dòng lệnh (tuỳ chọn)
 ```
-py -m pip install qrcode
+py -m pip install qrcode customtkinter
 py clipbridge_cloud.py              # chạy trong cửa sổ terminal
 py clipbridge_cloud.py --history    # xem lịch sử và copy lại
 py clipbridge_cloud.py --install    # tự chạy ngầm cùng Windows

@@ -12,8 +12,8 @@ if not defined PY (
   goto :end
 )
 
-echo [1/3] Cai PyInstaller + qrcode...
-%PY% -m pip install --disable-pip-version-check -q --upgrade pyinstaller qrcode
+echo [1/3] Cai PyInstaller + qrcode + customtkinter...
+%PY% -m pip install --disable-pip-version-check -q --upgrade pyinstaller qrcode customtkinter
 if errorlevel 1 ( echo [LOI] pip install that bai & goto :end )
 
 rem Bo module khong dung (giu tkinter cho giao dien) de giam dung luong (ban Cloud CAN ssl de ket noi Internet)
@@ -29,7 +29,7 @@ if exist "upx.exe" set "UPX=--upx-dir ."
 
 echo [2/3] Dong goi ClipBridge.exe...
 rem App co giao dien (tkinter), khong co cua so terminal
-%PY% -m PyInstaller --noconfirm --clean --onefile --windowed --optimize 2 --name ClipBridge --add-data "icon.png;." %EXCL% %UPX% clipbridge_app.pyw
+%PY% -m PyInstaller --noconfirm --clean --onefile --windowed --optimize 2 --name ClipBridge --add-data "icon.png;." --collect-data customtkinter %EXCL% %UPX% clipbridge_app.pyw
 if errorlevel 1 ( echo [LOI] PyInstaller that bai & goto :end )
 
 echo [3/3] Don dep...
