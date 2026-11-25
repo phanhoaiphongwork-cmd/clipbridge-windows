@@ -417,7 +417,7 @@ class App:
                                    border_width=0, fg_color=CHIP, text_color=FG, placeholder_text_color=MUT,
                                    font=self.font(13))
         self.search.pack(side="left", fill="x", expand=True, padx=(0, 10))
-        self.search.bind("<KeyRelease>", lambda e: self.render_history())
+        self.search.bind("<KeyRelease>", lambda e: self.search_soon())
         self.search.bind("<Escape>", lambda e: (self.search.delete(0, "end"), self.render_history()))
         self.seg = ctk.CTkSegmentedButton(row2, values=["Tất cả", "PC", "iPhone"], command=self.set_filter,
                                           height=36, corner_radius=8, font=self.font(13, "bold"), fg_color=CHIP,
@@ -445,13 +445,18 @@ class App:
                       fg_color="transparent", hover_color=CHIP, border_width=1, border_color=LINE, text_color=FG,
                       command=self.show_pairing).pack()
 
-        self.list = ctk.CTkScrollableFrame(r, fg_color=BG, corner_radius=0)
-        self.list.pack(fill="both", expand=True, padx=6, pady=(4, 0))
+        self.build_list(r)
 
         self.toast = ctk.CTkLabel(r, text="", fg_color=TOAST_BG, text_color=TOAST_FG, corner_radius=18, height=36,
                                   font=self.font(13, "bold"))
         self.menu_autostart = tk.BooleanVar(value=autostart_enabled())
         self.render_history()
+
+    def search_soon(self):
+        """Chờ gõ xong (180 ms) mới lọc, khỏi vẽ lại sau mỗi phím."""
+        if getattr(self, "_search_job", None):
+            self.root.after_cancel(self._search_job)
+        self._search_job = self.root.after(180, self.render_history)
 
     def set_filter(self, value):
         self.filter = {"Tất cả": "all", "PC": "pc", "iPhone": "ios"}[value]
@@ -537,6 +542,8 @@ class App:
         self.status.configure(text=title)
         self.sub.configure(text="Copy trên PC sẽ tự gửi sang iPhone" if self.auto.get()
                            else "Đã tắt tự gửi – copy trên PC sẽ không gửi đi")
+        if (1 if ctk.get_appearance_mode() == "Dark" else 0) != self.mode:
+            self.render_history()  # Windows vừa đổi sáng/tối
         self.root.after(1000, self.tick_status)
 
     def toggle_pause(self):
@@ -640,49 +647,173 @@ class App:
             out.append(it)
         return out
 
-    def render_history(self):
-        for w in self.list.winfo_children():
-            w.destroy()
-        self.rows = []
-        items = self.visible_items()
-        head = "4 GIỜ QUA" + (f" · {len(self.items)} MỤC" if self.items else "")
-        ctk.CTkLabel(self.list, text=head, font=self.font(11, "bold"), text_color=MUT, anchor="w"
-                     ).pack(fill="x", padx=10, pady=(8, 4))
-        if not items:
-            msg = ("Chưa có gì trong 4 giờ qua. Copy chữ hoặc ảnh trên PC hoặc iPhone, nó sẽ hiện ở đây."
-                   if not self.items else "Không có mục nào khớp.")
-            ctk.CTkLabel(self.list, text=msg, font=self.font(13), text_color=MUT, wraplength=380, justify="center"
-                         ).pack(fill="x", pady=40)
+    # ---------- danh sách lịch sử (widget tk nhẹ + cuộn mượt theo pixel) ----------
+    # Mỗi widget customtkinter là một Canvas tự vẽ lại -> 20 dòng mất ~0,4 s để dựng và cuộn bị giật.
+    # Ở đây dòng dùng tk.Frame/tk.Label thường, ảnh bo góc vẽ sẵn một lần, dòng được giữ lại giữa các lần lọc.
+    def c(self, pair):
+        return pair[self.mode]
+
+    def px(self, n):
+        return max(1, round(n * self.scale))
+
+    def tkfont(self, size, weight="normal", family=None):
+        return (family or self.ui_font or "TkDefaultFont", -self.px(size), weight)
+
+    def rounded(self, w, h, r, color):
+        """Ảnh nền bo góc (có khử răng cưa), lưu cache theo kích thước + màu."""
+        key = (w, h, r, color)
+        if key not in self._img_cache:
+            rr, gg, bb = int(color[1:3], 16), int(color[3:5], 16), int(color[5:7], 16)
+            px = bytearray(w * h * 4)
+            for y in range(h):
+                for x in range(w):
+                    cover = 0
+                    for sy in (0.125, 0.375, 0.625, 0.875):
+                        for sx in (0.125, 0.375, 0.625, 0.875):
+                            fx, fy = x + sx, y + sy
+                            dx = max(r - fx, 0, fx - (w - r))
+                            dy = max(r - fy, 0, fy - (h - r))
+                            cover += dx * dx + dy * dy <= r * r
+                    i = (y * w + x) * 4
+                    px[i:i + 4] = bytes((bb, gg, rr, cover * 255 // 16))
+            png = cb.encode_png(w, h, bytes(px))
+            self._img_cache[key] = tk.PhotoImage(data=base64.b64encode(png).decode())
+        return self._img_cache[key]
+
+    def build_list(self, parent):
+        self.mode = 1 if ctk.get_appearance_mode() == "Dark" else 0
+        try:
+            self.scale = ctk.ScalingTracker.get_widget_scaling(self.root)
+        except Exception:
+            self.scale = 1.0
+        self._img_cache, self.row_cache, self.rows = {}, {}, []
+        self.hover_row, self.no_hover_until, self._scroll_left, self._scroll_job = None, 0.0, 0.0, None
+        box = ctk.CTkFrame(parent, fg_color=BG, corner_radius=0)
+        box.pack(fill="both", expand=True)
+        self.canvas = tk.Canvas(box, highlightthickness=0, bd=0, yscrollincrement=1, bg=self.c(BG))
+        sb = ctk.CTkScrollbar(box, command=self.canvas.yview, fg_color=BG)
+        self.canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y", padx=(0, 2), pady=4)
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.inner = tk.Frame(self.canvas, bg=self.c(BG))
+        win = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
+        self.canvas.bind("<Configure>", lambda e: (self.canvas.itemconfigure(win, width=e.width), self._region()))
+        self.inner.bind("<Configure>", lambda e: self._region())
+        self.root.bind_all("<MouseWheel>", lambda e: self.wheel(-e.delta / 120), add="+")
+        self.root.bind_all("<Button-4>", lambda e: self.wheel(1), add="+")
+        self.root.bind_all("<Button-5>", lambda e: self.wheel(-1), add="+")
+        self.head_lbl = tk.Label(self.inner, anchor="w")
+        self.empty_lbl = tk.Label(self.inner, justify="center")
+        self.hint_lbl = tk.Label(self.inner, text="Nhấp đúp một dòng để copy · Tự xoá sau 4 giờ", anchor="w")
+        self.blank_btn = tk.PhotoImage(width=self.px(72), height=self.px(30))  # trong suốt: giữ chỗ cho nút Copy
+        self.style_static()
+        self.prewarm_images()
+
+    def prewarm_images(self):
+        """Vẽ sẵn ảnh bo góc của chế độ hiện tại, để lần hover/cuộn đầu không bị khựng."""
+        for col in (PC_SOFT, IOS_SOFT):
+            self.rounded(self.px(32), self.px(32), self.px(8), self.c(col))
+        self.rounded(self.px(72), self.px(30), self.px(8), self.c(ACC))
+
+    def style_static(self):
+        bg = self.c(BG)
+        self.canvas.configure(bg=bg)
+        self.inner.configure(bg=bg)
+        self.head_lbl.configure(bg=bg, fg=self.c(MUT), font=self.tkfont(11, "bold"))
+        self.empty_lbl.configure(bg=bg, fg=self.c(MUT), font=self.tkfont(13), wraplength=self.px(380))
+        self.hint_lbl.configure(bg=bg, fg=self.c(MUT), font=self.tkfont(11))
+
+    def _region(self):
+        bbox = self.canvas.bbox("all") or (0, 0, 0, 0)
+        self.canvas.configure(scrollregion=(0, 0, bbox[2], max(bbox[3], self.canvas.winfo_height())))
+
+    def wheel(self, notches):
+        x, y = self.root.winfo_pointerxy()
+        under = self.root.winfo_containing(x, y)
+        if under is None or not str(under).startswith(str(self.canvas)):
             return
+        self.set_hover(None)
+        self.no_hover_until = time.monotonic() + 0.25
+        self._scroll_left -= notches * self.px(64)
+        if not self._scroll_job:
+            self._scroll_step()
+
+    def _scroll_step(self):
+        """Cuộn dần (ease-out) thay vì nhảy cả nấc -> mượt hơn."""
+        left = self._scroll_left
+        if abs(left) < 1:
+            self._scroll_left, self._scroll_job = 0.0, None
+            return
+        step = int(left * 0.35) or (1 if left > 0 else -1)
+        before = self.canvas.yview()
+        self.canvas.yview_scroll(step, "units")
+        self._scroll_left = 0.0 if self.canvas.yview() == before else left - step  # chạm đầu/cuối thì dừng
+        self._scroll_job = self.root.after(10, self._scroll_step)
+
+    def render_history(self):
+        mode = 1 if ctk.get_appearance_mode() == "Dark" else 0
+        if mode != self.mode:  # đổi sáng/tối -> vẽ lại toàn bộ
+            self.mode = mode
+            for row in self.row_cache.values():
+                row["frame"].destroy()
+            self.row_cache = {}
+            self.style_static()
+            self.prewarm_images()
+        items = self.visible_items()
         me = self.cfg["sender"]
-        for idx, it in enumerate(items):
-            self.rows.append(self.make_row(it, me, idx == 0 and it is self.items[0]))
-        ctk.CTkLabel(self.list, text="Nhấp đúp một dòng để copy · Tự xoá sau 4 giờ", font=self.font(11),
-                     text_color=MUT, anchor="w").pack(fill="x", padx=10, pady=(6, 10))
+        newest = self.items[0]["id"] if self.items else None
+        keep = {it["id"] for it in self.items}
+        for i in [i for i in self.row_cache if i not in keep]:
+            self.row_cache.pop(i)["frame"].destroy()
+        for w in self.inner.pack_slaves():
+            w.pack_forget()
+        self.hover_row = None
+        self.head_lbl.configure(text="4 GIỜ QUA" + (f" · {len(self.items)} MỤC" if self.items else ""))
+        self.head_lbl.pack(fill="x", padx=self.px(14), pady=(self.px(10), self.px(4)))
+        if not items:
+            self.empty_lbl.configure(text="Chưa có gì trong 4 giờ qua. Copy chữ hoặc ảnh trên PC hoặc iPhone, "
+                                     "nó sẽ hiện ở đây." if not self.items else "Không có mục nào khớp.")
+            self.empty_lbl.pack(fill="x", pady=self.px(40))
+        self.rows = []
+        for it in items:
+            key = (it["id"], it["id"] == newest)
+            row = self.row_cache.get(it["id"])
+            if row is None or row["key"] != key:
+                if row:
+                    row["frame"].destroy()
+                row = self.row_cache[it["id"]] = self.make_row(it, me, it["id"] == newest)
+                row["key"] = key
+            row["frame"].pack(fill="x", padx=self.px(8), pady=1)
+            self.rows.append(row["frame"])
+        if items:
+            self.hint_lbl.pack(fill="x", padx=self.px(14), pady=(self.px(6), self.px(12)))
+        self.canvas.yview_moveto(0)
 
     def make_row(self, it, me, newest):
         name, dev = DEVICES[source_of(it["sender"], me)]
-        row = ctk.CTkFrame(self.list, fg_color="transparent", corner_radius=10, border_width=1, border_color=BG)
-        row.pack(fill="x", padx=4, pady=1)
-        g, f = self.glyph(dev)
-        ctk.CTkLabel(row, text=g, font=f, width=32, height=32, corner_radius=8,
-                     fg_color=PC_SOFT if dev == "pc" else IOS_SOFT, text_color=PC_C if dev == "pc" else IOS_C
-                     ).pack(side="left", padx=(10, 10), pady=10)
+        bg = self.c(BG)
         ok = "error" not in it
+        f = tk.Frame(self.inner, bg=bg, cursor="arrow")
+        g, gf = self.glyph(dev)
+        gfont = (gf.cget("family"), -self.px(14)) if self.icon_font else self.tkfont(11, "bold")
+        soft, ink = (PC_SOFT, PC_C) if dev == "pc" else (IOS_SOFT, IOS_C)
+        widgets = [tk.Label(f, image=self.rounded(self.px(32), self.px(32), self.px(8), self.c(soft)), text=g,
+                            compound="center", font=gfont, fg=self.c(ink), bg=bg, bd=0)]
+        widgets[0].pack(side="left", padx=(self.px(10), self.px(10)), pady=self.px(9))
         if ok and it["kind"] == "image" and it["id"] in self.thumbs:
-            import warnings
-
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                ctk.CTkLabel(row, text="", image=self.thumbs[it["id"]]).pack(side="left", padx=(0, 10), pady=6)
+            widgets.append(tk.Label(f, image=self.thumbs[it["id"]], bg=bg, bd=0))
+            widgets[-1].pack(side="left", padx=(0, self.px(10)), pady=self.px(6))
         btn = None
         if ok:
-            g, f = self.glyph("copy")
-            btn = ctk.CTkButton(row, text=g, font=f, width=32, height=32, corner_radius=8, fg_color="transparent",
-                                hover_color=CHIP, text_color=MUT, command=lambda: self.copy(it, btn))
-            btn.pack(side="right", padx=10)
-        body = ctk.CTkFrame(row, fg_color="transparent")
-        body.pack(side="left", fill="x", expand=True, pady=8)
+            cg, cf = self.glyph("copy")
+            btn = tk.Label(f, image=self.blank_btn, text=cg, compound="center", bg=bg, fg=self.c(MUT), bd=0,
+                           cursor="hand2", font=(cf.cget("family"), -self.px(14)) if self.icon_font
+                           else self.tkfont(12, "bold"))
+            btn.pack(side="right", padx=self.px(8))
+            btn.bind("<Button-1>", lambda e: self.copy(it))
+            widgets.append(btn)
+        body = tk.Frame(f, bg=bg)
+        body.pack(side="left", fill="x", expand=True, pady=self.px(8))
         if not ok:
             text, color = f"Không mở được: {it['error']}", BAD
         elif it["kind"] == "text":
@@ -690,41 +821,52 @@ class App:
             text, color = (t[:70] + "…") if len(t) > 70 else (t or "(trống)"), FG
         else:
             text, color = "Ảnh", FG
-        ctk.CTkLabel(body, text=text, font=self.font(13), text_color=color, anchor="w", justify="left").pack(fill="x")
         meta = f"{name} · {hhmm(it['at'])}"
         if ok and it["kind"] == "image":
             meta += f" · {max(1, len(it['payload']) // 1024)} KB"
         if newest:
             meta += " · mới nhất"
-        ctk.CTkLabel(body, text=meta, font=self.font(11), text_color=MUT, anchor="w").pack(fill="x")
-
-        def enter(_e=None):
-            row.configure(fg_color=CARD, border_color=ACC_SOFT)
-            if btn:
-                btn.configure(text="Copy", font=self.font(12, "bold"), width=72, fg_color=ACC, hover_color=ACC_HOVER,
-                              text_color=ACC_FG)
-
-        def leave(_e=None):
-            if not row.winfo_exists():
-                return
-            x, y = row.winfo_pointerxy()
-            if str(row.winfo_containing(x, y) or "").startswith(str(row)):
-                return
-            row.configure(fg_color="transparent", border_color=BG)
-            if btn:
-                g2, f2 = self.glyph("copy")
-                btn.configure(text=g2, font=f2, width=32, fg_color="transparent", hover_color=CHIP, text_color=MUT)
-
-        def bind_all(w):
-            w.bind("<Enter>", enter, add="+")
-            w.bind("<Leave>", leave, add="+")
+        widgets += [body, tk.Label(body, text=text, font=self.tkfont(13), fg=self.c(color), bg=bg, anchor="w"),
+                    tk.Label(body, text=meta, font=self.tkfont(11), fg=self.c(MUT), bg=bg, anchor="w")]
+        widgets[-2].pack(fill="x")
+        widgets[-1].pack(fill="x")
+        row = {"frame": f, "widgets": widgets, "btn": btn, "badge": widgets[0]}
+        for w in [f] + widgets:
+            w.bind("<Enter>", lambda e: self.set_hover(row), add="+")
             if ok and w is not btn:
-                w.bind("<Double-Button-1>", lambda e: self.copy(it, btn), add="+")
-            for c in w.winfo_children():
-                bind_all(c)
-
-        bind_all(row)
+                w.bind("<Double-Button-1>", lambda e: self.copy(it), add="+")
+        f.bind("<Leave>", lambda e: self._maybe_leave(row), add="+")
         return row
+
+    def set_hover(self, row):
+        if row is not None and time.monotonic() < self.no_hover_until:
+            return  # đang cuộn: không đổi màu dòng (tránh vẽ lại liên tục)
+        if row is self.hover_row:
+            return
+        old, self.hover_row = self.hover_row, row
+        for r, on in ((old, False), (row, True)):
+            if not r or not r["frame"].winfo_exists():
+                continue
+            bg = self.c(CARD if on else BG)
+            r["frame"].configure(bg=bg)
+            for w in r["widgets"]:
+                w.configure(bg=bg)
+            b = r["btn"]
+            if b is not None:
+                if on:
+                    b.configure(image=self.rounded(self.px(72), self.px(30), self.px(8), self.c(ACC)), text="Copy",
+                                fg=self.c(ACC_FG), font=self.tkfont(12, "bold"))
+                else:
+                    cg, cf = self.glyph("copy")
+                    b.configure(image=self.blank_btn, text=cg, fg=self.c(MUT),
+                                font=(cf.cget("family"), -self.px(14)) if self.icon_font else self.tkfont(12, "bold"))
+
+    def _maybe_leave(self, row):
+        x, y = self.root.winfo_pointerxy()
+        under = self.root.winfo_containing(x, y)
+        if under is None or not str(under).startswith(str(row["frame"])):
+            if self.hover_row is row:
+                self.set_hover(None)
 
     def copy(self, it, btn=None):
         try:
