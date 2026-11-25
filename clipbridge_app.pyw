@@ -778,9 +778,11 @@ class App:
         win = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
         self.canvas.bind("<Configure>", lambda e: (self.canvas.itemconfigure(win, width=e.width), self._region()))
         self.inner.bind("<Configure>", lambda e: self._region())
+        # wheel(n): n > 0 = cuộn xuống. Windows: lăn lên -> delta > 0 -> n < 0 (cuộn lên).
+        # Touchpad gửi delta nhỏ hơn 120 -> n lẻ, cuộn ít hơn tương ứng.
         self.root.bind_all("<MouseWheel>", lambda e: self.wheel(-e.delta / 120), add="+")
-        self.root.bind_all("<Button-4>", lambda e: self.wheel(1), add="+")
-        self.root.bind_all("<Button-5>", lambda e: self.wheel(-1), add="+")
+        self.root.bind_all("<Button-4>", lambda e: self.wheel(-1), add="+")  # Linux: lăn lên
+        self.root.bind_all("<Button-5>", lambda e: self.wheel(1), add="+")   # Linux: lăn xuống
         self.head_lbl = tk.Label(self.inner, anchor="w")
         self.empty_lbl = tk.Label(self.inner, justify="center")
         self.hint_lbl = tk.Label(self.inner, text="Nhấp đúp một dòng để copy · Tự xoá sau 4 giờ", anchor="w")
@@ -813,7 +815,7 @@ class App:
             return
         self.set_hover(None)
         self.no_hover_until = time.monotonic() + 0.25
-        self._scroll_left -= notches * self.px(64)
+        self._scroll_left += notches * self.px(64)
         if not self._scroll_job:
             self._scroll_step()
 
