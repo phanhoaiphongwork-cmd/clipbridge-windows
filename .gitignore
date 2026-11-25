@@ -1,0 +1,12 @@
+# cấu hình chứa mã ghép đôi - KHÔNG commit
+clipbridge_config.json
+token.txt
+clipbridge.log
+clipbridge.pid
+icon.ico
+__pycache__/
+*.pyc
+build/
+dist/
+*.spec
+*.exe
