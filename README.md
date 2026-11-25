@@ -32,7 +32,9 @@ Phía iPhone: https://clipbridge-weld.vercel.app
 - App tự bỏ qua nội dung từ trình quản lý mật khẩu (1Password, Bitwarden, KeePass…).
 
 ## Gỡ cài đặt
-**Cài đặt → Gỡ cài đặt…**: app tắt tự khởi động, xoá lối tắt, xoá mã ghép đôi và nhật ký, rồi mở thư mục ClipBridge để bạn xoá nốt.
+**Cài đặt → Gỡ cài đặt…**: app tắt tự khởi động, xoá lối tắt, mã ghép đôi, nhật ký và **xoá luôn thư mục ClipBridge** ngay sau khi app đóng.
+
+Để an toàn, nếu thư mục còn chứa file khác không phải của ClipBridge (ví dụ bạn giải nén thẳng vào Downloads), app chỉ xoá các file của ClipBridge và giữ nguyên thư mục.
 
 ## Smart App Control (Windows 11)
 Chạy bằng Python như trên thì **không bị chặn**:
