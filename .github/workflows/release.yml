@@ -4,6 +4,7 @@ name: Build ClipBridge.pyw
 # - Mỗi lần push lên develop: file nằm trong mục Artifacts của lần chạy (tải để thử).
 # - Push tag v* (vd. v0.1.0) hoặc tạo Release trên GitHub: Release được tạo (nếu chưa có)
 #   và ClipBridge.pyw được đính kèm vào đó.
+# - Chạy tay (Actions → Run workflow) với ô "tag" (vd. v0.1.0): tạo tag + Release ngay trên commit đó.
 on:
   push:
     branches: [develop]
@@ -11,6 +12,10 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tạo Release với tag này (vd. v0.1.0). Bỏ trống = chỉ build."
+        required: false
 
 permissions:
   contents: write
@@ -30,10 +35,10 @@ jobs:
           name: ClipBridge
           path: dist/ClipBridge.pyw
       - name: Release
-        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/') || inputs.tag != ''
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
         run: |
-          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "ClipBridge $TAG" --generate-notes
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --target "$GITHUB_SHA" --title "ClipBridge $TAG" --generate-notes
           gh release upload "$TAG" dist/ClipBridge.pyw --clobber
