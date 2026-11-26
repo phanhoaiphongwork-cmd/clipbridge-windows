@@ -81,8 +81,8 @@ Mỗi lúc chỉ nên chạy một bản: app hoặc bản dòng lệnh.
 
 ### Phát hành bản một file
 GitHub Action `.github/workflows/release.yml` tự chạy `build_single.py`:
-- Mỗi lần push lên `main`: `ClipBridge.pyw` nằm trong mục **Artifacts** của lần chạy (để thử).
-- Khi tạo **Release** mới trên GitHub (Releases → Draft a new release → đặt tag, ví dụ `v1.1` → Publish): `ClipBridge.pyw` tự được đính kèm vào Release.
+- Mỗi lần push lên `develop`: `ClipBridge.pyw` nằm trong mục **Artifacts** của lần chạy (để thử).
+- Push một tag `v*` (ví dụ `git tag v0.1.0 && git push origin v0.1.0`) hoặc tạo **Release** trên GitHub: Release được tạo (nếu chưa có) và `ClipBridge.pyw` tự được đính kèm.
 
 ## Bảo mật
 - **Mã ghép đôi là chìa khoá duy nhất.** Ai có mã (hoặc ảnh chụp QR) đều đọc/ghi được clipboard của bạn. Nếu lỡ lộ, bấm **Ghép đôi iPhone (QR) → Tạo mã mới**.
