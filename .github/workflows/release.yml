@@ -1,0 +1,39 @@
+name: Build ClipBridge.pyw
+
+# Gộp app thành một file ClipBridge.pyw.
+# - Mỗi lần push lên develop: file nằm trong mục Artifacts của lần chạy (tải để thử).
+# - Push tag v* (vd. v0.1.0) hoặc tạo Release trên GitHub: Release được tạo (nếu chưa có)
+#   và ClipBridge.pyw được đính kèm vào đó.
+on:
+  push:
+    branches: [develop]
+    tags: ["v*"]
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build
+        run: python build_single.py -o dist/ClipBridge.pyw
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ClipBridge
+          path: dist/ClipBridge.pyw
+      - name: Release
+        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --title "ClipBridge $TAG" --generate-notes
+          gh release upload "$TAG" dist/ClipBridge.pyw --clobber
