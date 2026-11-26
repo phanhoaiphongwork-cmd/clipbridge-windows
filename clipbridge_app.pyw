@@ -32,8 +32,13 @@ import clipbridge_cloud as cc  # noqa: E402
 
 WIN = sys.platform == "win32"
 FROZEN = getattr(sys, "frozen", False)
+# Bản một file (ClipBridge.pyw do build_single.py tạo): icon nằm sẵn trong file, app tự cài vào INSTALL_DIR.
+BUNDLED_ICON = globals().get("_CLIPBRIDGE_BUNDLED_ICON")
+BUNDLED = BUNDLED_ICON is not None
 ICON_PNG = (Path(getattr(sys, "_MEIPASS", "")) if FROZEN else Path(__file__).resolve().parent) / "icon.png"
 SHOW_EVENT = "Local\\ClipBridgeShowWindow"
+QUIT_EVENT = "Local\\ClipBridgeQuit"
+INSTALL_DIR = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "ClipBridge"
 NO_WINDOW = 0x08000000 if WIN else 0  # CREATE_NO_WINDOW
 
 events = queue.Queue()  # luồng nền -> giao diện
@@ -77,18 +82,32 @@ def signal_existing_app():
     return True
 
 
+def signal_existing_quit():
+    """Bảo app đang mở thoát hẳn (dùng khi cập nhật bản một file). True nếu đã báo được."""
+    if not WIN:
+        return False
+    k = _k32()
+    h = k.OpenEventW(0x0002, False, QUIT_EVENT)
+    if not h:
+        return False
+    k.SetEvent(h)
+    k.CloseHandle(h)
+    return True
+
+
 def listen_show_requests():
     if not WIN:
         return
     k = _k32()
-    h = k.CreateEventW(None, False, False, SHOW_EVENT)
+    for name, kind in ((SHOW_EVENT, "show"), (QUIT_EVENT, "quit")):
+        h = k.CreateEventW(None, False, False, name)
 
-    def loop():
-        while True:
-            if k.WaitForSingleObject(h, 0xFFFFFFFF) == 0:
-                events.put(("show", None))
+        def loop(h=h, kind=kind):
+            while True:
+                if k.WaitForSingleObject(h, 0xFFFFFFFF) == 0:
+                    events.put((kind, None))
 
-    threading.Thread(target=loop, daemon=True).start()
+        threading.Thread(target=loop, daemon=True).start()
 
 
 # ================================================================ tự khởi động & lối tắt
@@ -127,10 +146,14 @@ def set_autostart(on):
                 pass
 
 
+def icon_bytes():
+    return BUNDLED_ICON if BUNDLED else ICON_PNG.read_bytes()
+
+
 def make_ico():
     """icon.ico (chứa ảnh PNG) cho lối tắt - Windows Vista trở lên đọc được."""
     ico = cc.APP_DIR / "icon.ico"
-    png = ICON_PNG.read_bytes()
+    png = icon_bytes()
     w, h = int.from_bytes(png[16:20], "big"), int.from_bytes(png[20:24], "big")
     head = (b"\0\0\1\0\1\0" + bytes([w % 256, h % 256, 0, 0]) + (1).to_bytes(2, "little")
             + (32).to_bytes(2, "little") + len(png).to_bytes(4, "little") + (22).to_bytes(4, "little"))
@@ -223,7 +246,8 @@ def uninstall_files():
 
 
 # Những gì ClipBridge mang theo hoặc tự tạo ra trong thư mục của nó.
-OWN_FILES = {"clipbridge_app.pyw", "clipbridge_cloud.py", "clipbridge.py", "ClipBridge.bat", "build_exe.bat",
+OWN_FILES = {"ClipBridge.pyw", "ClipBridge.tmp", "build_single.py",
+             "clipbridge_app.pyw", "clipbridge_cloud.py", "clipbridge.py", "ClipBridge.bat", "build_exe.bat",
              "icon.png", "icon.ico", "README.md", ".gitignore", "clipbridge_config.json", "clipbridge.log",
              "clipbridge.pid", "token.txt", "ClipBridge.exe", "ClipBridge.spec", "upx.exe", "cloudflared.exe",
              "__pycache__", "build", "dist", ".git"}
@@ -411,7 +435,7 @@ def hhmm(iso):
 
 
 class App:
-    def __init__(self, root, hidden):
+    def __init__(self, root, hidden, notice=None):
         self.root = root
         self.cfg = cc.load_cfg()
         self.sync = None
@@ -433,7 +457,7 @@ class App:
         root.minsize(440, 520)
         root.configure(fg_color=BG)
         try:
-            self.icon = tk.PhotoImage(file=str(ICON_PNG))
+            self.icon = tk.PhotoImage(data=base64.b64encode(icon_bytes()).decode())
             root.iconphoto(True, self.icon)
         except Exception:
             pass
@@ -456,6 +480,8 @@ class App:
             root.withdraw()
         elif first_run:
             root.after(400, self.show_pairing)
+        if notice and not hidden:
+            root.after(700, lambda: self.show_toast(notice, 3500))
 
     # ---------- tiện ích ----------
     def font(self, size=13, weight="normal"):
@@ -652,6 +678,9 @@ class App:
                     self.got_history(*val)
                 elif kind == "show":
                     self.show()
+                elif kind == "quit":
+                    self.quit()
+                    return
                 elif kind == "call":
                     val()
         except queue.Empty:
@@ -1147,8 +1176,104 @@ class App:
         self.root.destroy()
 
 
+# ================================================================ cài bản một file
+def _pythonw():
+    exe = Path(sys.executable)
+    pyw = exe.with_name("pythonw.exe")
+    return str(pyw if pyw.exists() else exe)
+
+
+def _run_value():
+    """Lệnh tự khởi động ClipBridge đang lưu trong registry (None nếu chưa bật)."""
+    if not WIN:
+        return None
+    import winreg
+
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, cc.RUN_KEY) as key:
+            return winreg.QueryValueEx(key, cc.RUN_NAME)[0]
+    except OSError:
+        return None
+
+
+def _old_install_dir():
+    """Thư mục bản cũ (giải nén từ ZIP), đọc từ mục tự khởi động trong registry. None nếu không có."""
+    for part in (_run_value() or "").split('"'):
+        if part.lower().endswith((".pyw", ".py", ".exe")) and "python" not in Path(part).name.lower():
+            d = Path(part).parent
+            if d.resolve() != INSTALL_DIR.resolve():
+                return d
+    return None
+
+
+def install_bundle():
+    """Bản một file chạy từ chỗ khác (vd. Downloads): chép vào INSTALL_DIR rồi mở bản đã cài.
+    True nếu đã chuyển sang bản cài (phiên này nên thoát)."""
+    me = Path(__file__).resolve()
+    target = INSTALL_DIR / "ClipBridge.pyw"
+    if not BUNDLED or not WIN or me == target.resolve():
+        return False
+    def dialog(fn, text):
+        r = tk.Tk()
+        r.withdraw()
+        try:
+            return fn("ClipBridge", text)
+        finally:
+            r.destroy()
+
+    data = me.read_bytes()
+    same = target.exists() and target.read_bytes() == data
+    if not same:
+        if cc.is_running():
+            if not dialog(messagebox.askyesno, "ClipBridge đang chạy.\nCập nhật lên bản này? "
+                          "App sẽ tự đóng rồi mở lại (mã ghép đôi được giữ nguyên)."):
+                return True
+            if signal_existing_quit():
+                for _ in range(100):
+                    if not cc.is_running():
+                        break
+                    time.sleep(0.1)
+            if cc.is_running():
+                dialog(messagebox.showwarning, "ClipBridge (bản cũ) vẫn đang chạy.\nHãy bấm Cài đặt "
+                       "(bánh răng) → Thoát hẳn, rồi mở lại file này.")
+                return True
+            time.sleep(0.5)  # chờ app cũ nhả file
+        INSTALL_DIR.mkdir(parents=True, exist_ok=True)
+        # giữ mã ghép đôi của bản ZIP cũ (nếu có) để không phải quét QR lại
+        cfg = INSTALL_DIR / cc.CONFIG.name
+        for old in (me.parent, _old_install_dir()):
+            if old and not cfg.exists() and (old / cc.CONFIG.name).is_file():
+                cfg.write_bytes((old / cc.CONFIG.name).read_bytes())
+        tmp = target.with_suffix(".tmp")
+        tmp.write_bytes(data)  # ghi lại nội dung (không chép) -> bỏ luôn dấu "tải từ Internet"
+        os.replace(tmp, target)
+    flags = 0x00000008 | NO_WINDOW  # DETACHED_PROCESS | CREATE_NO_WINDOW
+    subprocess.Popen([_pythonw(), str(target)] + ([] if same else ["--installed"]), cwd=str(INSTALL_DIR),
+                     creationflags=flags, close_fds=True)
+    return True
+
+
+def finish_install():
+    """Chạy trong bản vừa cài. Cài mới: tạo lối tắt + bật tự khởi động. Cập nhật (đã có mã ghép đôi):
+    chỉ sửa lại lối tắt / tự khởi động đang có cho trỏ về bản mới. Trả về câu thông báo."""
+    updated = bool(cc.load_cfg().get("code"))
+    steps = []
+    if not updated or any(f.exists() for f in shortcut_files()):
+        steps.append(create_shortcuts)
+    if not updated or _run_value() is not None:
+        steps.append(lambda: set_autostart(True))
+    for step in steps:
+        try:
+            step()
+        except Exception as e:
+            app_log(f"Cài đặt: {e}")
+    return "✓  Đã cập nhật ClipBridge" if updated else "✓  Đã cài ClipBridge: có lối tắt trên Desktop và Start Menu"
+
+
 def main():
     hidden = "--hidden" in sys.argv
+    if install_bundle():
+        return
     if signal_existing_app():
         return  # app đã mở -> nó tự hiện cửa sổ
     if cc.is_running():
@@ -1164,8 +1289,9 @@ def main():
             return
     cc.acquire_single_instance()
     listen_show_requests()
+    notice = finish_install() if BUNDLED and "--installed" in sys.argv else None
     root = ctk.CTk()
-    App(root, hidden)
+    App(root, hidden, notice)
     root.mainloop()
 
 

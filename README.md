@@ -5,17 +5,25 @@ Nội dung được **mã hoá đầu-cuối (AES-256-GCM)**. Server chỉ thấ
 
 Phía iPhone: https://clipbridge-weld.vercel.app
 
-## Cài đặt (~3 phút)
+## Cài đặt (~2 phút)
 1. Cài **Python 3** từ https://www.python.org/downloads/. Khi cài, nhớ tick **Add python.exe to PATH**.
-2. Tải repo này về: nút **Code → Download ZIP**.
-3. Chuột phải file ZIP → **Properties** → tick **Unblock** → **OK**. Bước này bỏ dấu "tải từ Internet", để Windows không chặn hay hỏi lại khi chạy.
-4. Giải nén ra một thư mục cố định, ví dụ `C:\Users\<tên bạn>\ClipBridge`. **Đừng chuyển thư mục** sau khi cài.
-5. Nhấp đúp **`ClipBridge.bat`** để mở app. Nếu không mở được, nhấp đúp `clipbridge_app.pyw`.
-   Lần đầu app tự cài thư viện giao diện `customtkinter` và `qrcode` (cần mạng, mất vài giây).
-6. Lần đầu app hiện **mã QR**. Mở Camera iPhone và quét mã đó để ghép đôi.
-7. Bấm nút **Cài đặt** (bánh răng, góc dưới phải):
-   - Tick **Tự chạy ngầm khi đăng nhập Windows**.
-   - Chọn **Tạo lối tắt** để có biểu tượng ClipBridge trên Desktop và Start Menu.
+2. Vào mục **[Releases](../../releases/latest)** của repo này và tải **một file duy nhất**: `ClipBridge.pyw`.
+   Nếu trình duyệt hỏi có giữ file không, chọn **Giữ lại (Keep)**.
+3. Nhấp đúp `ClipBridge.pyw`. Lần đầu app sẽ:
+   - tự cài thư viện giao diện `customtkinter` và `qrcode` (cần mạng, mất vài giây);
+   - tự cài vào `%LOCALAPPDATA%\ClipBridge`, tạo lối tắt **ClipBridge** trên Desktop và Start Menu, bật **tự chạy ngầm khi đăng nhập Windows**;
+   - hiện **mã QR**. Mở Camera iPhone và quét mã đó để ghép đôi.
+4. Xong. File `ClipBridge.pyw` vừa tải về có thể xoá đi; từ giờ mở app bằng lối tắt.
+
+Không cần giải nén, không cần **Unblock**: bản cài trong `%LOCALAPPDATA%` không mang dấu "tải từ Internet". Muốn tắt tự khởi động: **Cài đặt** (bánh răng) → bỏ tick **Tự chạy ngầm khi đăng nhập Windows**.
+
+<details>
+<summary>Cách cũ: tải cả thư mục (ZIP)</summary>
+
+1. Tải repo: nút **Code → Download ZIP**. Chuột phải file ZIP → **Properties** → tick **Unblock** → **OK**.
+2. Giải nén ra một thư mục cố định, ví dụ `C:\Users\<tên bạn>\ClipBridge`. **Đừng chuyển thư mục** sau khi cài.
+3. Nhấp đúp **`ClipBridge.bat`** (hoặc `clipbridge_app.pyw`), quét mã QR, rồi trong **Cài đặt** tick **Tự chạy ngầm…** và chọn **Tạo lối tắt**.
+</details>
 
 ## Sử dụng
 | Mục | Công dụng |
@@ -32,7 +40,7 @@ Phía iPhone: https://clipbridge-weld.vercel.app
 - App tự bỏ qua nội dung từ trình quản lý mật khẩu (1Password, Bitwarden, KeePass…).
 
 ## Gỡ cài đặt
-**Cài đặt → Gỡ cài đặt…**: app tắt tự khởi động, xoá lối tắt, mã ghép đôi, nhật ký và **xoá luôn thư mục ClipBridge** ngay sau khi app đóng.
+**Cài đặt → Gỡ cài đặt…**: app tắt tự khởi động, xoá lối tắt, mã ghép đôi, nhật ký và **xoá luôn thư mục ClipBridge** (`%LOCALAPPDATA%\ClipBridge`) ngay sau khi app đóng.
 
 Để an toàn, nếu thư mục còn chứa file khác không phải của ClipBridge (ví dụ bạn giải nén thẳng vào Downloads), app chỉ xoá các file của ClipBridge và giữ nguyên thư mục.
 
@@ -46,7 +54,9 @@ Chạy bằng Python như trên thì **không bị chặn**:
 Riêng `ClipBridge.exe` tự build bằng `build_exe.bat` thì **sẽ bị chặn** vì chưa ký số. Đừng dùng file .exe này nếu máy bật Smart App Control.
 
 ## Cập nhật
-Tải ZIP mới, rồi giải nén **đè** vào cùng thư mục. File `clipbridge_config.json` chứa mã ghép đôi vẫn được giữ nguyên, nên không cần ghép lại iPhone.
+Tải `ClipBridge.pyw` mới từ **Releases** rồi nhấp đúp. App hỏi để đóng bản đang chạy, thay bằng bản mới và mở lại. Mã ghép đôi được giữ nguyên, không cần ghép lại iPhone.
+
+**Đang dùng bản ZIP cũ?** Cứ nhấp đúp `ClipBridge.pyw` mới: app tự lấy mã ghép đôi từ thư mục cũ (nếu bản cũ đang bật tự khởi động, hoặc đặt file `.pyw` vào chính thư mục cũ rồi chạy), chuyển tự khởi động và lối tắt sang bản mới. Sau đó có thể xoá thư mục cũ.
 
 ## Bản dòng lệnh (tuỳ chọn)
 ```
@@ -66,7 +76,13 @@ Mỗi lúc chỉ nên chạy một bản: app hoặc bản dòng lệnh.
 | `clipbridge_app.pyw` | App có giao diện |
 | `clipbridge_cloud.py` | Lõi đồng bộ + mã hoá, bản dòng lệnh |
 | `clipbridge.py` | Clipboard Windows + xử lý ảnh |
+| `build_single.py` | Gộp mọi thứ thành một file `ClipBridge.pyw` (`py build_single.py` → `dist/ClipBridge.pyw`) |
 | `build_exe.bat` | Build `ClipBridge.exe` (không cần nếu chạy bằng Python) |
+
+### Phát hành bản một file
+GitHub Action `.github/workflows/release.yml` tự chạy `build_single.py`:
+- Mỗi lần push lên `main`: `ClipBridge.pyw` nằm trong mục **Artifacts** của lần chạy (để thử).
+- Khi tạo **Release** mới trên GitHub (Releases → Draft a new release → đặt tag, ví dụ `v1.1` → Publish): `ClipBridge.pyw` tự được đính kèm vào Release.
 
 ## Bảo mật
 - **Mã ghép đôi là chìa khoá duy nhất.** Ai có mã (hoặc ảnh chụp QR) đều đọc/ghi được clipboard của bạn. Nếu lỡ lộ, bấm **Ghép đôi iPhone (QR) → Tạo mã mới**.
